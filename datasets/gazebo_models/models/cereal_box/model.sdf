@@ -1,0 +1,67 @@
+<?xml version="1.0" ?>
+<!--
+Copyright 2020 Google LLC.
+
+This work is licensed under the Creative Commons Attribution 4.0
+International License. To view a copy of this license, visit
+http://creativecommons.org/licenses/by/4.0/ or send a letter
+to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+-->
+<sdf version="1.6">
+  <model name="Vans_Cereal_Honey_Nut_Crunch_11_oz_box">
+    <static>1</static>
+    <link name="link_0">
+      <!-- <visual name="visual"> -->
+      <!--   <geometry> -->
+      <!--     <mesh> -->
+	    <!-- <uri>model://cereal_box/meshes/model.obj</uri> -->
+      <!--     </mesh> -->
+      <!--   </geometry> -->
+      <!-- </visual> -->
+      <visual name="visual">
+	<geometry>
+	  <mesh><uri>model://cereal_box/meshes/model.obj</uri></mesh>
+	</geometry>
+	<material>
+	  <ambient>1 1 0 1</ambient>
+	  <diffuse>1 1 0 1</diffuse>
+	  <specular>0.1 0.1 0.1 1</specular>
+	  <emissive>0 0 0 1</emissive>
+	</material>
+	<!-- <material> -->
+	<!--   <pbr> -->
+	<!--     <metal> -->
+	<!--       <albedo_map>model://cereal_box/materials/textures/texture.png</albedo_map> -->
+	<!--       <metalness>0.0</metalness> -->
+	<!--       <roughness>0.8</roughness> -->
+	<!--       <alpha_mode>OPAQUE</alpha_mode>   <!-1- <- critical -1-> -->
+	<!--       <double_sided>true</double_sided> -->
+	<!--     </metal> -->
+	<!--   </pbr> -->
+	<!--   <transparency>0</transparency>        <!-1- fallback for ogre1 -1-> -->
+	<!-- </material> -->
+	<!-- <visibility_flags>0xFFFFFFFF</visibility_flags> -->
+      </visual>
+      <collision name="collision_0">
+        <geometry>
+          <!-- <mesh> -->
+	    <!-- <uri>model://cereal_box/meshes/model.obj</uri> -->
+          <!-- </mesh> -->
+	<box>
+	  <size> 0.20544 0.055639 0.281525 </size>
+	</box>
+        </geometry>
+	<surface>
+	  <contact>
+	    <collide_without_contact>true</collide_without_contact>
+	  </contact>
+	  <!-- <contact> -->
+	  <!--   <ode> -->
+	  <!--     <max_contacts> 8 </max_contacts> -->
+	  <!--   </ode> -->
+	  <!-- </contact> -->
+	</surface>
+      </collision>
+    </link>
+  </model>
+</sdf>

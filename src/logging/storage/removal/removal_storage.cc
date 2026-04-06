@@ -1,0 +1,22 @@
+#include "removal_storage.h"
+#include <iomanip>
+
+void RemovalStorage::init(const int& seed_tpg, const int& pid, const int& n_task, const int& max_memory_size) {
+    std::string filename = generate_filename("removal", seed_tpg, pid);
+
+    file_.open(filename);
+    file_ << "generation,num_teams,num_programs,num_root_programs,num_elite_teams,num_deleted,num_old_deleted,percent_old_deleted\n";
+    file_.flush();
+}
+
+void RemovalStorage::append(const RemovalMetrics& metrics) {
+    file_ << metrics.generation << ","
+          << metrics.num_teams << ","
+          << metrics.num_programs << ","
+          << metrics.num_root_programs << ","
+          << metrics.num_elite_teams << ","
+          << metrics.num_deleted << ","
+          << metrics.num_old_deleted << ","
+          << std::fixed << std::setprecision(6) << metrics.percent_old_deleted << "\n";
+    file_.flush();
+}
