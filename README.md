@@ -1,10 +1,13 @@
-# Tangled Program Graphs (TPG)
+# Robot Visual Navigation using Tangled Program Graphs
 
 This code reproduces results from the paper:
 
-Stephen Kelly, Tatiana Voegerl, Wolfgang Banzhaf, and Cedric Gondro. Evolving Hierarchical Memory-Prediction Machines in Multi-Task Reinforcement Learning. Genetic Programming and Evolvable Machines, 2021. [pdf](https://rdcu.be/czd3s)
+Neelkant Teeluckdharry, Stephen Kelly. Robot Visual Navigation using Tangled Program Graphs
+
 
 ## Quick Start
+
+First setup install are required dependencies of the original TPG repository. 
 
 This code is designed to be used in Linux. If you use Windows, you can use Windows Subsystem for Linux (WSL). You can work with WSL in Visual Studio Code by following [this tutorial](https://code.visualstudio.com/docs/remote/wsl-tutorial). Run this to automatically install all dependencies and compile:
 
@@ -136,8 +139,3 @@ Delete all checkpoints and output files:
 tpg-cleanup.sh
 ```
 
-### 2025-11-20
-```
-sshfs skelly@nibi.alliancecan.ca:/home/skelly/projects/def-skelly/skelly/results /home/skelly/gp_experiments/
-fusermount3 -u ~/gp_experiments/
-```

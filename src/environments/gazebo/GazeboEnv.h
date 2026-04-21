@@ -38,6 +38,7 @@ using namespace std::chrono_literals;
 #include "ignition/common.hh"
 
 
+
 class GazeboEnv : public TaskEnv {
   public:
     sdf::Root root_;
@@ -55,40 +56,11 @@ class GazeboEnv : public TaskEnv {
 
     /* Getting Robot Coordinates for Evaluator */
 
+    float GetRobotX() {return robot_x_; }
+    float GetRobotY() {return robot_y_; }
 
-
-
-
-    float robot_yaw_{0.0};
-    float robot_x_{0.0}; 
-    float robot_y_{0.0};
-
-    float obstacle_x_{0.0};
-    float obstacle_y_{0.0};
-
-    float target_x_{0.0};
-    float target_y_{0.0};
-    
-    /* ----- Obstacle Sizing ----- */
-    const double sx = 0.40;  // width
-    const double sy = 0.40;  // thickness
-    const double sz = 0.50;  // height
-    const double cereal_z = 0.281525;
-
-    float GetRobotX() { return robot_x_; }
-    float GetRobotY() { return robot_y_; }
-    float GetRobotYaw(){ return robot_yaw_;}
-
-    float GetGoalX() { return target_x_; }
-    float GetGoalY() { return target_y_; }
-
-    float GetObstacleX() { return obstacle_x_;}
-    float GetObstacleY() { return obstacle_y_;}
-
-    float GetObstacleWidth() {return sx;}
-    float GetObstacleDepth() {return sy;}
-
-
+    float robot_x_; 
+    float robot_y_;
 
     static ignition::transport::NodeOptions MakeOpts() {
 	    ignition::transport::NodeOptions opts;

@@ -14,35 +14,6 @@
 #include "vector"
 #include "random"
 
-
-#include <atomic>
-#include <chrono>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
-
-#ifndef TPG_TRACE
-#define TPG_TRACE 0
-#endif
-
-#if TPG_TRACE
-inline void trace_log(const std::string& msg) {
-  static std::mutex trace_mtx;
-  std::lock_guard<std::mutex> lk(trace_mtx);
-  std::cerr << msg << std::endl;
-}
-#define TRACE(MSG) do { \
-  std::ostringstream _oss; \
-  _oss << MSG; \
-  trace_log(_oss.str()); \
-} while (0)
-#else
-#define TRACE(MSG) do {} while (0)
-#endif
-
-
-
-
 class TurtleBot4_Nav : public GazeboEnv {
   private:
     ignition::transport::Node node_;
@@ -60,20 +31,16 @@ class TurtleBot4_Nav : public GazeboEnv {
 
     /* Sensor Measurements */
     std::string obs_type_;
-    std::vector<float> cur_lidar_scan_;
-    std::vector<uint8_t> cur_rgb_img_red_;
-    std::vector<uint8_t> cur_rgb_img_green_;
-    std::vector<uint8_t> cur_rgb_img_blue_;
     std::vector<float> cur_depth_feat_;
-
-    int cv_depth_bins_ = 32;
-    int num_rgb_feats_ = 3;
 
     std::mutex mtx1;
     std::mutex mtx2;
     std::mutex mtx3;
 
     std::mutex robot_mtx;
+
+    int cv_depth_bins_ = 32;
+    int num_rgb_feats_ = 3;
 
     //Video Stuff
     cv::VideoWriter video_;
@@ -119,10 +86,11 @@ class TurtleBot4_Nav : public GazeboEnv {
     std::string sdfXml_o;
 
     /* --- Random Pose Start --- */
-    std::atomic<uint64_t> next_req_id_{1};
-    std::atomic<uint64_t> pending_req_id_{0};
-    std::atomic<uint64_t> serviced_req_id_{0};
-    std::atomic_bool request_serviced_{false};
+    float obstacle_x_{0.0};
+    float obstacle_y_{0.0};
+
+    float target_x_{0.0};
+    float target_y_{0.0};
 
     /* --- Random Pose Ends --- */
 
@@ -133,6 +101,9 @@ class TurtleBot4_Nav : public GazeboEnv {
     float yellow_area_{0.0f};   // fraction of image in [0, 1]
     bool wait_for_first_rgb_{false};
 
+    std::atomic<uint32_t> next_req_id_{0};   // id you will assign to the *next* request
+    std::atomic<uint32_t> expectedId{UINT32_MAX};
+    std::atomic_bool request_serviced_{false};
 
     ignition::transport::Node::Publisher posePub_;
     ignition::transport::Node::Publisher ctrlPub_;
@@ -147,7 +118,12 @@ class TurtleBot4_Nav : public GazeboEnv {
     double L_star_;
 
 
+    //Reaching target
+    bool target_reached_ = false;
+
+
     //calculating reward
+    double robot_yaw_;
 
     int current_ep=0;
     int total_eps=10;
@@ -174,24 +150,14 @@ class TurtleBot4_Nav : public GazeboEnv {
 
 
     // Pick approximate cereal dimensions (meters): X x Y x Z
-    /* const double sx = 0.40;  // width */
-    /* const double sy = 0.40;  // thickness */
-    /* const double sz = 0.50;  // height */
-    /* const double cereal_z = 0.281525; */
+    const double sx = 0.40;  // width
+    const double sy = 0.40;  // thickness
+    const double sz = 0.50;  // height
 
     // Put COM on ground: z = half height
     /* const double x = 0/1* your x *1/; */
     /* const double y = 0/1* your y *1/; */
     /* const double z = 0; */
-
-    //DEBUG
-    std::atomic<uint64_t> dbg_req_sent_{0};
-    std::atomic<uint64_t> dbg_req_rcvd_{0};
-    
-
-
-    //Mechanisms for stopping at target
-    bool target_reached_ = false;
 
     const std::string sdfBox = R"(
     <sdf version="1.7">
@@ -232,11 +198,6 @@ class TurtleBot4_Nav : public GazeboEnv {
       step_ = 0;
 
       total_eps = std::any_cast<int>(params["gz_n_eval_test"]);
-
-      /* cv_depth_hi_ = std::any_cast<int>(params["cv_depth_hi"]); */
-      /* cv_depth_hf_ = std::any_cast<int>(params["cv_depth_hf"]); */
-      /* cv_depth_wi_ = std::any_cast<int>(params["cv_depth_wi"]); */
-      /* cv_depth_wf_ = std::any_cast<int>(params["cv_depth_wf"]); */      
 
       cv_depth_height_ = std::any_cast<int>(params["cv_depth_height"]);
       cv_depth_width_ = std::any_cast<int>(params["cv_depth_width"]);
@@ -282,32 +243,11 @@ class TurtleBot4_Nav : public GazeboEnv {
       ctrlPub_ = request_node_.Advertise<ignition::msgs::Pose>("/world/maze/control");
 
       requestPub_ = request_node_.Advertise<ignition::msgs::Boolean>("/random_pose_req");
-      
-     //configuring observations
-      rgb_obs_size_ = cv_rgb_height_ * cv_rgb_width_;
 
-      depth_obs_size_ = cv_depth_height_ * cv_depth_width_;
-
-      if(obs_type_ == "lidar") {	
-	obs_size_ = LIDAR_SCAN_SIZE;
-	state_.resize(obs_size_);
-      }
       if(obs_type_ == "depth") {
-	/* obs_size_ = cv_depth_bins_ + 2; */
 	obs_size_ = cv_depth_bins_ + num_rgb_feats_;
-	/* obs_size_ = depth_obs_size_; */
 	state_.resize(obs_size_);
       }
-      if(obs_type_ == "rgb") {
-	obs_size_ = 3*rgb_obs_size_;
-	state_.resize(obs_size_);
-      }
-
-      //resizing
-      cur_lidar_scan_.resize(LIDAR_SCAN_SIZE);
-      cur_rgb_img_red_.resize(rgb_obs_size_);
-      cur_rgb_img_green_.resize(rgb_obs_size_);
-      cur_rgb_img_blue_.resize(rgb_obs_size_);
 
       //@TODO: FINISH RESIZING THEN PASS DEPTH TO OBS_VECT THEN DO SAME FOR RGB
 
@@ -340,7 +280,7 @@ class TurtleBot4_Nav : public GazeboEnv {
 
       //map callback
       if(replay) {
-      node_.Subscribe("/path_length/optimal", &TurtleBot4_Nav::map_callback, this);
+	node_.Subscribe("/path_length/optimal", &TurtleBot4_Nav::map_callback, this);
       }
       
       if(!rgb_node_.Subscribe(rgb_topic_, &TurtleBot4_Nav::rgb_cb, this)){
@@ -352,7 +292,7 @@ class TurtleBot4_Nav : public GazeboEnv {
 
 
       //ensure lidar is receiving messages on the topic
-      wait_for_first_scan_.store(WaitForFirstScan(), std::memory_order_release);
+      wait_for_first_scan_ = WaitForFirstScan();
 
 
     }
@@ -367,7 +307,7 @@ class TurtleBot4_Nav : public GazeboEnv {
 
       const unsigned kIterPerCall = 10;          
 
-      while (!wait_for_first_scan_.load(std::memory_order_acquire)) {
+      while (!wait_for_first_scan_) {
 	server_->Run(true, kIterPerCall, /*paused=*/false);
 
 	if (std::chrono::steady_clock::now() - start > timeout)
@@ -381,6 +321,23 @@ class TurtleBot4_Nav : public GazeboEnv {
     bool GetCollisionStatus() { return collision_; }
 
 
+    bool WaitForFirstPose(std::chrono::milliseconds timeout = std::chrono::seconds(4)) {
+
+      auto start = std::chrono::steady_clock::now();
+
+      const unsigned kIterPerCall = 10;          
+
+      while (!wait_for_first_pose_) {
+	server_->Run(/*blocking=*/true, kIterPerCall, /*paused=*/false);
+
+	if (std::chrono::steady_clock::now() - start > timeout)
+	  return false;                 
+      }
+
+
+      return true;                    
+    }
+
 
     void map_callback(const ignition::msgs::Double &map_msg) {
 
@@ -393,6 +350,8 @@ class TurtleBot4_Nav : public GazeboEnv {
 
     void SetSteps(unsigned int value) { step_ = value; }
 
+    /* float GetRobotX() {return robot_x_; } */
+    /* float GetRobotY() {return robot_y_; } */
 
     std::string getParam() {return obs_type_;}
 
@@ -401,6 +360,7 @@ class TurtleBot4_Nav : public GazeboEnv {
 
 
     void rgb_cb(const ignition::msgs::Image &msg) {
+
 
       const unsigned int width = msg.width();
       const unsigned int height = msg.height();
@@ -417,10 +377,6 @@ class TurtleBot4_Nav : public GazeboEnv {
       if (step < static_cast<size_t>(width) * 3) return;
 
 
-
-
-      /* std::cout << "Received rgb msg\n"; */
-      /* std::cout << "Width: " << width << " Height: " << height << std::endl; */
 
       const std::string &data = msg.data();
 
@@ -446,9 +402,8 @@ class TurtleBot4_Nav : public GazeboEnv {
 	cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
       } 
       else if (is_bgr) {
-
-	bgr = cv::Mat(height,width, CV_8UC3, const_cast<char*>(msg.data().data())).clone();
-
+	bgr = cv::Mat(height, width, CV_8UC3,
+              const_cast<char*>(msg.data().data()), step).clone();
       }
       else {
 	return;
@@ -508,50 +463,12 @@ class TurtleBot4_Nav : public GazeboEnv {
 
       }
 
-
-
-    }
-    static uint64_t header_u64(const ignition::msgs::Header &h,
-                           const std::string &key,
-                           uint64_t fallback = 0)
-    {
-      for (const auto &kv : h.data()) {
-	if (kv.key() == key && kv.value_size() > 0) {
-	  try {
-	    return std::stoull(kv.value(0));
-	  } catch (...) {
-	    return fallback;
-	  }
-	}
-      }
-      return fallback;
     }
 
-    void random_cb(const ignition::msgs::Pose_V &random_msg)
-    {
-      const uint64_t resp_req_id =
-	  header_u64(random_msg.header(), "req_id", 0);
 
-      const uint64_t expected_req_id =
-	  pending_req_id_.load(std::memory_order_acquire);
 
-      if (resp_req_id == 0) {
-	std::cerr << "[random_cb] Missing/invalid req_id in response\n";
-	return;
-      }
+    void random_cb (const ignition::msgs::Pose_V &random_msg) {
 
-      if (expected_req_id == 0) {
-	std::cerr << "[random_cb] No pending request, ignoring response req_id="
-		  << resp_req_id << "\n";
-	return;
-      }
-
-      if (resp_req_id != expected_req_id) {
-	std::cerr << "[random_cb] Stale/mismatched response: got req_id="
-		  << resp_req_id
-		  << " expected=" << expected_req_id << "\n";
-	return;
-      }
 
       double tgt_x = 0.0, tgt_y = 0.0;
       double obs_x = 0.0, obs_y = 0.0;
@@ -559,12 +476,13 @@ class TurtleBot4_Nav : public GazeboEnv {
       bool got_target = false;
       bool got_obstacle = false;
 
-      for (const auto &p : random_msg.pose()) {
+      for(const auto &p: random_msg.pose()){
 	if (p.name() == "target") {
 	  tgt_x = p.position().x();
 	  tgt_y = p.position().y();
 	  got_target = true;
 	}
+
 	else if (p.name() == "obstacle") {
 	  obs_x = p.position().x();
 	  obs_y = p.position().y();
@@ -572,136 +490,32 @@ class TurtleBot4_Nav : public GazeboEnv {
 	}
       }
 
-      if (!got_target || !got_obstacle) {
+
+      if(!got_target || !got_obstacle) {
 	std::cerr << "[random_cb] Missing pose(s): "
-		  << "target=" << got_target
-		  << " obstacle=" << got_obstacle
-		  << " req_id=" << resp_req_id << "\n";
+              << "target=" << got_target
+              << " obstacle=" << got_obstacle << "\n";
 	return;
       }
 
-      if (!std::isfinite(tgt_x) || !std::isfinite(tgt_y) ||
-	  !std::isfinite(obs_x) || !std::isfinite(obs_y)) {
-	std::cerr << "[random_cb] Non-finite coordinates in response req_id="
-		  << resp_req_id << "\n";
-	return;
-      }
+
 
       {
 	std::lock_guard<std::mutex> lock(mtx3);
+
 	target_x_ = tgt_x;
 	target_y_ = tgt_y;
+
 	obstacle_x_ = obs_x;
 	obstacle_y_ = obs_y;
+
+	/* std::cout << "[RECEIVED]: " <<  object_x_ << " " << object_y_ << std::endl; */
+
       }
 
-      serviced_req_id_.store(resp_req_id, std::memory_order_release);
       request_serviced_.store(true, std::memory_order_release);
 
-      /* uint64_t got = dbg_req_rcvd_.fetch_add(1, std::memory_order_relaxed) + 1; */
-      /* TRACE("[RANDRESP recv] count=" << got */
-	    /* << " req_id=" << resp_req_id */
-	    /* << " expected=" << expected_req_id */
-	    /* << " target=(" << tgt_x << "," << tgt_y << ")" */
-	    /* << " obstacle=(" << obs_x << "," << obs_y << ")" */
-	    /* << " serviced=" << request_serviced_.load(std::memory_order_acquire)); */
     }
-
-    /* void random_cb(const ignition::msgs::Pose_V &random_msg) { */
-    /*   auto get_u64_header = [](const ignition::msgs::Header &h, */
-			       /* const std::string &key, */
-			       /* uint64_t fallback = 0) -> uint64_t { */
-	/* for (const auto &kv : h.data()) { */
-	  /* if (kv.key() == key && kv.value_size() > 0) { */
-	    /* try { */
-	      /* return std::stoull(kv.value(0)); */
-	    /* } catch (...) { */
-	      /* return fallback; */
-	    /* } */
-	  /* } */
-	/* } */
-	/* return fallback; */
-    /*   }; */
-
-    /*   const uint64_t resp_req_id = */
-	  /* get_u64_header(random_msg.header(), "req_id", 0); */
-
-    /*   const uint64_t expected_req_id = */
-	  /* pending_req_id_.load(std::memory_order_acquire); */
-
-    /*   if (resp_req_id == 0) { */
-	/* std::cerr << "[random_cb] Missing/invalid req_id in response\n"; */
-	/* return; */
-    /*   } */
-
-    /*   if (expected_req_id == 0) { */
-	/* std::cerr << "[random_cb] No pending request, ignoring response req_id=" */
-		  /* << resp_req_id << "\n"; */
-	/* return; */
-    /*   } */
-
-    /*   if (resp_req_id != expected_req_id) { */
-	/* std::cerr << "[random_cb] Stale/mismatched response: got req_id=" */
-		  /* << resp_req_id */
-		  /* << " expected=" << expected_req_id << "\n"; */
-	/* return; */
-    /*   } */
-
-    /*   double tgt_x = 0.0, tgt_y = 0.0; */
-    /*   double obs_x = 0.0, obs_y = 0.0; */
-
-    /*   bool got_target = false; */
-    /*   bool got_obstacle = false; */
-
-    /*   for (const auto &p : random_msg.pose()) { */
-	/* if (p.name() == "target") { */
-	  /* tgt_x = p.position().x(); */
-	  /* tgt_y = p.position().y(); */
-	  /* got_target = true; */
-	/* } else if (p.name() == "obstacle") { */
-	  /* obs_x = p.position().x(); */
-	  /* obs_y = p.position().y(); */
-	  /* got_obstacle = true; */
-	/* } */
-    /*   } */
-
-    /*   if (!got_target || !got_obstacle) { */
-	/* std::cerr << "[random_cb] Missing pose(s): " */
-		  /* << "target=" << got_target */
-		  /* << " obstacle=" << got_obstacle */
-		  /* << " req_id=" << resp_req_id << "\n"; */
-	/* return; */
-    /*   } */
-
-    /*   if (!std::isfinite(tgt_x) || !std::isfinite(tgt_y) || */
-	  /* !std::isfinite(obs_x) || !std::isfinite(obs_y)) { */
-	/* std::cerr << "[random_cb] Non-finite coordinates in response req_id=" */
-		  /* << resp_req_id << "\n"; */
-	/* return; */
-    /*   } */
-
-    /*   { */
-	/* std::lock_guard<std::mutex> lock(mtx3); */
-	/* target_x_ = tgt_x; */
-	/* target_y_ = tgt_y; */
-	/* obstacle_x_ = obs_x; */
-	/* obstacle_y_ = obs_y; */
-    /*   } */
-
-    /*   serviced_req_id_.store(resp_req_id, std::memory_order_release); */
-    /*   request_serviced_.store(true, std::memory_order_release); */
-
-    /*   uint64_t got = dbg_req_rcvd_.fetch_add(1, std::memory_order_relaxed) + 1; */
-    /*   TRACE("[RANDRESP recv] count=" << got */
-	    /* << " ep=" << current_ep */
-	    /* << " req_id=" << resp_req_id */
-	    /* << " expected=" << expected_req_id */
-	    /* << " target=(" << tgt_x << "," << tgt_y << ")" */
-	    /* << " obstacle=(" << obs_x << "," << obs_y << ")" */
-	    /* << " serviced=" << request_serviced_.load(std::memory_order_acquire)); */
-    /* } */
-
-
 
 
     void depthToBaseFrame(const cv::Mat& depth,
@@ -750,7 +564,7 @@ class TurtleBot4_Nav : public GazeboEnv {
 
         if (width != 320 || height != 240) return;
 
-	wait_for_first_scan_.store(true, std::memory_order_release);
+	wait_for_first_scan_ = true;
 
         using PFT = ignition::msgs::PixelFormatType;
         const auto fmt  = depth_msg.pixel_format_type();
@@ -833,20 +647,22 @@ class TurtleBot4_Nav : public GazeboEnv {
 
     void pose_cb (const ignition::msgs::Pose_V &pose_msg) {
 
-      wait_for_first_pose_.store(true, std::memory_order_release);
+      wait_for_first_pose_ = true;
 
       for(int i = 0; i < pose_msg.pose_size(); ++i) {
 	const auto &pose = pose_msg.pose(i);
 
 	if(pose.name() == "turtlebot4") {
 
-	  std::lock_guard<std::mutex> lk(robot_mtx);
+	  {
+	    std::lock_guard<std::mutex> lk(robot_mtx);
 
-	  robot_x_ = pose.position().x();
-	  robot_y_ = pose.position().y();
+	    robot_x_ = pose.position().x();
+	    robot_y_ = pose.position().y();
 
-	  ignition::math::Quaterniond q = ignition::msgs::Convert(pose.orientation());
-	  robot_yaw_ = q.Yaw();
+	    ignition::math::Quaterniond q = ignition::msgs::Convert(pose.orientation());
+	    robot_yaw_ = q.Yaw();
+	  }
 
 	  return;
 	}
@@ -854,24 +670,6 @@ class TurtleBot4_Nav : public GazeboEnv {
     }
 
 
-    void lidar_cb (const ignition::msgs::LaserScan &scan_msg) {
-
-      cur_lidar_scan_.resize(scan_msg.ranges_size());
-      collision_= false;
-
-      for(int i=0; i < scan_msg.ranges_size(); ++i) {
-	cur_lidar_scan_[i] = scan_msg.ranges(i);
-      }
-
-      for(int i = 0; i < scan_msg.ranges_size(); ++i) {
-	if(abs(scan_msg.ranges(i)) < 0.25) {
-	  collision_ = true;
-	  /* std::cout << "[COLLISION DETECTED]!" << std::endl; */
-	  return; 
-	}
-      }
-
-    }
 
 
 
@@ -881,131 +679,82 @@ class TurtleBot4_Nav : public GazeboEnv {
     //note that callback rates for all three scans may be different
 
     void get_obs(std::vector<double> &obs) {
-
+      
       obs.resize(obs_size_, 0.0);
+
+      if (obs_type_ == "depth") {
+	assert(cv_depth_bins_ == 32);
+	assert(num_rgb_feats_ == 3);
+	assert(obs_size_ == 35);
+	assert(state_.size() == static_cast<size_t>(obs_size_));
+      }
 
       if(obs_type_ == "depth") {
 
 	  std::vector<float> snap;
-	  {
-	    std::lock_guard<std::mutex> lk(mtx1);
-	    snap = cur_depth_feat_;               // copy-out
-	  }
-
-	  // float -> double conversion; no temp vector needed
-	  /* std::transform(snap.begin(), snap.end(), obs.begin(), */
-			 /* [](float x){ return static_cast<double>(x); }); */
-
-	  if(snap.size() >= 32) {
-
-	    for(int i = 0; i < 32; ++i) {
-	      obs[i] = static_cast<double>(snap[i]);
-	    }
-
-	  }
-	  
 	  bool seen;
 	  float cx, area;
-	  
 	  {
-	    std::lock_guard<std::mutex> lk(rgb_mtx_);
+	    std::scoped_lock lock(mtx1, rgb_mtx_);
+	    snap = cur_depth_feat_;               // copy-out
 	    seen = yellow_seen_;
 	    cx = yellow_cx_;
 	    area = yellow_area_;
 	  }
+
+	  if (snap.size() != 32) {
+	    std::cerr << "[get_obs] bad depth size: " << snap.size() << "\n";
+	    return;
+	  }
 	  
+	  for(int i = 0; i < 32; ++i) {
+	    if (!std::isfinite(snap[i])) {
+	      std::cerr << "[get_obs] non-finite depth value at " << i << "\n";
+	      return;
+	    }
+	    obs[i] = static_cast<double>(snap[i]);
+	  }
+	  
+	  if (!std::isfinite(cx) || !std::isfinite(area)) {
+	    std::cerr << "[get_obs] non-finite rgb feature\n";
+	    return;
+	  }
+
 	  obs[32] = seen ? 1.0: 0.0;
 	  obs[33] = static_cast<double>(cx);
 	  obs[34] = static_cast<double>(area);
 
       }
 
-      if (obs.size() != static_cast<size_t>(obs_size_)) {
-	/* TRACE("[OBS size mismatch] obs.size=" << obs.size() */
-        /* << " obs_size_=" << obs_size_); */
-	std::abort();
-      }
-      
-      /* TRACE("[OBS fill] step=" << step_ */
-	  /* << " size=" << obs.size() */
-	  /* << " depth0=" << (obs.size() > 0 ? obs[0] : -999.0) */
-	  /* << " seen=" << (obs.size() > 32 ? obs[32] : -999.0) */
-	  /* << " cx=" << (obs.size() > 33 ? obs[33] : -999.0) */
-	  /* << " area=" << (obs.size() > 34 ? obs[34] : -999.0)); */
+
 
     }
 
 
-    /* bool wait_for_request(std::chrono::milliseconds timeout = std::chrono::seconds(4)) { */
+    bool wait_for_request(std::chrono::milliseconds timeout = std::chrono::seconds(4)) {
 
-    /*   auto start = std::chrono::steady_clock::now(); */
-
-    /*   const unsigned kIterPerCall = 10; */
-
-    /*   while (!request_serviced_.load(std::memory_order_acquire)) { */
-	/* server_->Run(true, kIterPerCall, *paused=* */
-
-	/* if (std::chrono::steady_clock::now() - start > timeout) { */
-	  /* if(debug_msgs_) std::cout << "did not receive message\n"; */
-	  /* return false; */                 
-	/* } */
-    /*   } */
-
-    /*   if(debug_msgs_) std::cout << "Confirm received message\n"; */
-
-
-    /*   return true; */
-
-    /* } */
-
-    bool wait_for_request(std::chrono::milliseconds timeout = std::chrono::seconds(4))
-    {
       auto start = std::chrono::steady_clock::now();
+
       const unsigned kIterPerCall = 10;
 
-      const uint64_t expected =
-	  pending_req_id_.load(std::memory_order_acquire);
-
-      while (true) {
-	server_->Run(true, kIterPerCall, false);
-
-	if (request_serviced_.load(std::memory_order_acquire) &&
-	    serviced_req_id_.load(std::memory_order_acquire) == expected) {
-	  return true;
-	}
+      while (!request_serviced_.load(std::memory_order_acquire)) {
+	server_->Run(true, kIterPerCall, /*paused=*/false);
 
 	if (std::chrono::steady_clock::now() - start > timeout) {
-	  std::cerr << "[wait_for_request] timeout waiting for req_id="
-		    << expected
-		    << " serviced_req_id="
-		    << serviced_req_id_.load(std::memory_order_acquire)
-		    << " serviced="
-		    << request_serviced_.load(std::memory_order_acquire)
-		    << "\n";
-	  return false;
+	  if(debug_msgs_) std::cout << "did not receive message\n";
+	  return false;                 
 	}
       }
+
+      if(debug_msgs_) std::cout << "Confirm received message\n";
+
+
+      return true;
+
     }
-
-
 
 
     bool Terminal() { 
-
-      
-      /* if ( ( step_ >= max_step_) || (distance_to_object_ <= 0.30)) { */
-
-	/* if(debug_msgs_) std::cout << "Finished\n"; */
-
-	/* return true; */
-
-
-      /* } */
-      /* else { */
-
-	/* return false; */
-      /* } */
-
 
       if(step_ >= max_step_) return true;
       if(target_reached_) return true;
@@ -1061,8 +810,6 @@ class TurtleBot4_Nav : public GazeboEnv {
       bool declared_stop = (std::abs(action[0]) < 1e-6 && std::abs(action[1]) < 1e-6);
       bool visual_goal_ok = seen && std::abs(cx) < 0.20f && area > 0.03f;
 
-      /* std::cout << "visual goal ok: " << visual_goal_ok << std::endl; */
-
       if(declared_stop) {
 
 	if(visual_goal_ok) {
@@ -1091,50 +838,12 @@ class TurtleBot4_Nav : public GazeboEnv {
       
       return {reward, 0.0};
 
-    }
 
-    uint64_t send_random_request(uint64_t spawn_seed)
-    {
-      const uint64_t req_id =
-	  next_req_id_.fetch_add(1, std::memory_order_relaxed);
-
-      pending_req_id_.store(req_id, std::memory_order_release);
-      serviced_req_id_.store(0, std::memory_order_release);
-      request_serviced_.store(false, std::memory_order_release);
-
-      ignition::msgs::Boolean req_msg;
-      req_msg.set_data(true);
-
-      auto *h = req_msg.mutable_header();
-
-      auto *d1 = h->add_data();
-      d1->set_key("spawn_seed");
-      d1->add_value(std::to_string(spawn_seed));
-
-      auto *d2 = h->add_data();
-      d2->set_key("req_id");
-      d2->add_value(std::to_string(req_id));
-
-      requestPub_.Publish(req_msg);
-
-      /* uint64_t sent = dbg_req_sent_.fetch_add(1, std::memory_order_relaxed) + 1; */
-      /* TRACE("[RANDREQ send] count=" << sent */
-	    /* << " req_id=" << req_id */
-	    /* << " ep=" << current_ep */
-	    /* << " seed=" << spawn_seed); */
-
-      return req_id;
     }
 
 
     //@TODO: Random positions and Testing
     void Reset(std::mt19937& rng) {
-
-      /* TRACE("[RESET begin] ep=" << current_ep */
-      /* << " step=" << step_ */
-      /* << " seen=" << yellow_seen_ */
-      /* << " target=(" << target_x_ << "," << target_y_ << ")" */
-      /* << " obstacle=(" << obstacle_x_ << "," << obstacle_y_ << ")"); */
 
       /* wait_for_first_scan_ = true; */
 
@@ -1186,60 +895,30 @@ class TurtleBot4_Nav : public GazeboEnv {
       server_->Run(true, 1, false);
 
       /* /1* Step 6: Spawning Box Randomly *1/ */
-      /* request_serviced_.store(false, std::memory_order_release); */
+      request_serviced_.store(false, std::memory_order_release);
 
-      /* ignition::msgs::Boolean random_req; */ 
-      /* random_req.set_data(true); */
+      ignition::msgs::Boolean random_req; 
+      random_req.set_data(true);
 
-      /* auto* hdr = random_req.mutable_header(); */
-      /* auto* d   = hdr->add_data(); */ 
-      /* d->set_key("round"); */
-      /* d->add_value(std::to_string(0)); */
+      auto* hdr = random_req.mutable_header();
+      auto* d   = hdr->add_data(); 
+      d->set_key("round");
+      d->add_value(std::to_string(0));
 
-      /* d = hdr->add_data(); */
-      /* d->set_key("ep"); */
-      /* d->add_value(std::to_string(current_ep)); */
+      d = hdr->add_data();
+      d->set_key("ep");
+      d->add_value(std::to_string(current_ep));
 
-      /* // NEW: spawn seed (64-bit) */
+      // NEW: spawn seed (64-bit)
       uint64_t spawn_seed =
 	  (static_cast<uint64_t>(rng()) << 32) | rng();
 
-      const uint64_t req_id = send_random_request(spawn_seed);
+      d = hdr->add_data();
+      d->set_key("spawn_seed");
+      d->add_value(std::to_string(spawn_seed));
 
+      requestPub_.Publish(random_req);
       server_->Run(true, 1, false);
-      /* d = hdr->add_data(); */
-      /* d->set_key("spawn_seed"); */
-      /* d->add_value(std::to_string(spawn_seed)); */
-
-
-      /* uint64_t req_id = next_req_id_.fetch_add(1, std::memory_order_relaxed); */
-      /* serviced_req_id_.store(0, std::memory_order_release); */
-      /* pending_req_id_.store(req_id, std::memory_order_release); */
-      /* request_serviced_.store(false, std::memory_order_release); */
-
-      /* auto* d4 = hdr->add_data(); */
-      /* d4->set_key("req_id"); */
-      /* d4->add_value(std::to_string(req_id)); */
-
-      /* uint64_t sent = dbg_req_sent_.fetch_add(1, std::memory_order_relaxed) + 1; */
-      /* TRACE("[RANDREQ send] count=" << sent */
-      /* << " req_id=" << req_id */
-      /* << " ep=" << current_ep */
-      /* << " seed=" << spawn_seed); */
-
-      ok = wait_for_request(std::chrono::seconds(4));
-      if (!ok) {
-	std::cerr << "[RESET] randomization request failed for req_id="
-            << req_id << "\n";
-      }
-
-
-
-      /* requestPub_.Publish(random_req); */
-
-
-      /* TRACE("[RESET after server step] ep=" << current_ep */
-      /* << " req_sent=" << dbg_req_sent_.load()); */
 
 
 
@@ -1247,13 +926,13 @@ class TurtleBot4_Nav : public GazeboEnv {
 
 
       /* Need to wait for request to be serviced */ 
-      /* if(debug_msgs_) std::cout << "Sending pose request\n"; */
-      /* if(!wait_for_request()) { */
+      if(debug_msgs_) std::cout << "Sending pose request\n";
+      if(!wait_for_request()) {
 
-	/* if(debug_msgs_) std::cout << "Random Pose timeout\n"; */
-	/* return; */
+	if(debug_msgs_) std::cout << "Random Pose timeout\n";
+	return;
 
-      /* } */
+      }
 
       double obs_x, obs_y, tgt_x, tgt_y;
 
@@ -1366,6 +1045,47 @@ class TurtleBot4_Nav : public GazeboEnv {
 
 	// --- Move Obstacle Box Start ---
 	
+	/* request_serviced_.store(false, std::memory_order_release); */
+
+	/* ignition::msgs::Boolean box_pose_req; */ 
+	/* box_pose_req.set_data(true); */
+
+	/* auto* box_hdr = box_pose_req.mutable_header(); */
+	/* auto* box_data = box_hdr->add_data(); */ 
+	/* box_data->set_key("round"); */
+	/* box_data->add_value(std::to_string(0)); */
+
+	/* box_data = box_hdr->add_data(); */
+	/* box_data->set_key("ep"); */
+	/* box_data->add_value(std::to_string(current_ep)); */
+
+	/* // NEW: spawn seed (64-bit) */
+	/* spawn_seed = */
+	/*     (static_cast<uint64_t>(rng()) << 32) | rng(); */
+
+	/* box_data = box_hdr->add_data(); */
+	/* box_data->set_key("spawn_seed"); */
+	/* box_data->add_value(std::to_string(spawn_seed)); */
+
+	/* requestPub_.Publish(box_pose_req); */
+
+	/* if(!wait_for_request()) { */
+
+	/*   std::cout << "Random Pose timeout\n"; */
+	/*   return; */
+
+	/* } */
+
+	/* double box_x,box_y; */
+
+
+	/* { */
+	  
+	/*   std::lock_guard<std::mutex> lock(mtx3); */
+	/*   box_x = object_x_; */
+	/*   box_y = object_y_; */
+
+	/* } */
 
 	ignition::msgs::Pose move_box;
 	move_box.mutable_position()->set_x(obs_x);
@@ -1394,37 +1114,16 @@ class TurtleBot4_Nav : public GazeboEnv {
       distance_to_object_ = 1000;
       collision_ = false;
       target_reached_ = false;
-      
-      {
-	std::lock_guard<std::mutex> lk(rgb_mtx_);
-	yellow_seen_ = false;
-	yellow_cx_ = 0.0f;
-	yellow_area_ = 0.0f;
-	wait_for_first_rgb_ = false;
-      }
-      
-      {
-	std::lock_guard<std::mutex> lk(mtx1);
-	cur_depth_feat_.assign(32, RMAX);
-      }
 
-      server_->Run(true,1,false);
 
+      current_ep +=1;
+      current_ep = current_ep % total_eps;
 
       /* path_len_ = 0.0; */
       /* spl_awarded_ = false; */
 
       get_obs(state_);
 
-      /* TRACE("[RESET end] ep=" << current_ep */
-      /* << " obs_size=" << state_.size() */
-      /* << " obs0=" << (state_.empty() ? -999.0 : state_[0]) */
-      /* << " obs32=" << (state_.size() > 32 ? state_[32] : -999.0) */
-      /* << " obs33=" << (state_.size() > 33 ? state_[33] : -999.0) */
-      /* << " obs34=" << (state_.size() > 34 ? state_[34] : -999.0)); */
-
-      current_ep +=1;
-      current_ep = current_ep % total_eps;
 
     }
 
