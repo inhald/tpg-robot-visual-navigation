@@ -1,141 +1,35 @@
-# Robot Visual Navigation using Tangled Program Graphs
+# Robot Visual Navigation using TPG
 
 This code reproduces results from the paper:
 
 Neelkant Teeluckdharry, Stephen Kelly. Robot Visual Navigation using Tangled Program Graphs
 
 
-## Quick Start
 
-First setup install are required dependencies of the original TPG repository. 
 
-This code is designed to be used in Linux. If you use Windows, you can use Windows Subsystem for Linux (WSL). You can work with WSL in Visual Studio Code by following [this tutorial](https://code.visualstudio.com/docs/remote/wsl-tutorial). Run this to automatically install all dependencies and compile:
 
-```bash
-bash ./setup.sh
-```
+We can rapidly evolve visual navigation policies on a high-performance computing cluster such as those on the Digital Research Alliance of Canada. 
 
-This performs the setup and compilation of the steps below. If you want to manually install, follow the instructions below.
+## Pre-requisites
+Load the apptainer module `module load apptainer` and set `$TPG` to the environment variable for this directory.
 
-For MacOS or Windows users, you can follow this [guide](https://gitlab.cas.mcmaster.ca/kellys32/tpg/-/wikis/Dev-Container-Setup-Guide) to setup Dev Containers which spins up a Linux based environment right within VS Code.
+## Build the container
+First `cd apptainer`, then complete the build the container by running `apptainer build gazebo_tpg.sif gazebo_tpg.def`. 
 
-### 1. Install required software
+## Build the TPGExperiment binary file
+Within the same directory, run `sbatch build_and_test.sbatch`. These commands are useful for monitoring the job: `watch -n 5 squeue -u $USER` and `tail -f slurm<your_job_number>.out`.
 
-From the tpg directory run:
+Ensure that all testcases pass.
 
-```
-sudo xargs --arg-file requirements.txt apt install
-```
 
-Note that [MuJoco](https://mujoco.org/) must be downloaded and unpacked separately.
+## Running a job
+Copy the config file to a new directory in experiments
 
-### 2. Set environment variables
+`mkdir -p $TPG/experiments/gazebo_turtlebot4 && cp $TPG/configs/gazebo_turtlebot4.yaml $TPG/experiments/gazebo_turtlebot4`
 
-In order to easily access tpg scripts, we add appropriate folders to the $PATH environment variable.
-To do so, add the following to _~/.profile_
+Then, run the slurm script from within the experiment directory. 
 
-```
-export TPG=<YOUR_PATH_HERE>/tpg
-export PATH=$PATH:$TPG/scripts/plot
-export PATH=$PATH:$TPG/scripts/run
-export MUJOCO=<YOUR_PATH_TO_MUJOCO>/mujoco-3.2.2
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$MUJOCO/lib/
-```
+`sbatch ../../scripts/run/tpg-gazebo.sh -s <your_seed_number> -p ./${PWD##*/}.yaml`
 
-Then run:
 
-```
-source ~/.profile
-```
-
-### 3. Compile
-
-From the tpg directory run:
-
-```bash
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-To run in debug mode:
-
-```bash
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-```
-
-To run the build with compiler optimization flags:
-
-```bash
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_HIGH_OPTIMIZATION=ON
-cmake --build build
-```
-
-Additionally, you can use the `Makefile` to build TPG as well.
-
-To build in debug mode:
-
-```bash
-make debug
-```
-
-To build in release mode:
-
-```bash
-make release
-```
-
-To build with optimized flags:
-
-```bash
-make optimized
-```
-
-To clean the Build:
-
-```bash
-make clean
-```
-
-### 4. Run an experiment
-
-Refer to the [wiki](https://gitlab.cas.mcmaster.ca/kellys32/tpg/-/wikis/Running-Experiments-with-the-TPG-CLI) for more information on how to run experiments with the CLI
-
-To run an experiment for [MuJoco Inverted Pendulum](https://gymnasium.farama.org/environments/mujoco/inverted_pendulum/) using 4 parallel MPI processes, we can use the `tpg` CLI tool to execute experiments:
-
-```
-tpg evolve inverted_pendulum
-```
-
-The logs, plots, and replay videos would populate within the `experiments/inverted_pendulum` directory
-
-Note that as of right now, the number of assigned processes must be greater than the number of active tasks.
-
-### 5. Plot results
-
-Generate classic_control_p0.pdf with various statistics:
-
-```
-tpg-plot-stats.sh
-```
-
-The first page will be a training curve looking something like the plot below. A fitness of ~1000 indicates the agent balances the pole for 1000 timesteps, thus solving the task.
-
-<img src="./images/MuJoco_Inverted_Pendulum_Fitness.png" height="300" />
-
-### 6. Visualize the best policy's behaviour
-
-Display an OpenGL animation of the single best policy interacting with the environment:
-
-```
-tpg replay inverted_pendulum
-```
-
-### 7. Cleanup
-
-Delete all checkpoints and output files:
-
-```
-tpg-cleanup.sh
-```
 
