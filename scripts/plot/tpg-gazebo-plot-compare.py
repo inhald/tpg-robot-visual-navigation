@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
+from scipy.stats import wilcoxon
 
 phase = 0
 task_set = "_0_"
@@ -19,11 +20,6 @@ COLORS = {
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-# If this script is stored inside paper_data:
-#base_path = HERE
-
-# Otherwise use:
 base_path = "/home/dhilan/tpg_codebase/tpg/experiments/paper_data"
 
 
@@ -130,6 +126,12 @@ if __name__ == "__main__":
     global_min_len = None
     all_series = []  # list of (label, gens, mean, mx, std, color)
 
+    # Store mean curves by type and seed for Wilcoxon pairing
+    curves_by_type_and_seed = {
+        "stateless": {},
+        "stateful": {},
+    }
+
     for exp_path in all_experiments:
         exp_name = os.path.basename(exp_path)
         exp_type = get_experiment_type(exp_name)
@@ -161,15 +163,74 @@ if __name__ == "__main__":
             color = COLORS.get(exp_type, None)
             all_series.append((label, gens, mean, mx, std, color))
 
+            # Keep one curve per type/seed.
+            # If the same seed appears multiple times within a type, average them.
+            if seed not in curves_by_type_and_seed[exp_type]:
+                curves_by_type_and_seed[exp_type][seed] = []
+            curves_by_type_and_seed[exp_type][seed].append(mean)
+
     if not all_series:
         raise RuntimeError("No curves found across discovered experiments.")
 
+    # Plot all curves
     for label, gens, mean, mx, std, color in all_series:
         L = global_min_len
         g = gens[:L]
         if phase > 0:
             g = g * 100
         add_seed_curve(g, mean[:L], mx[:L], std[:L], label, color=color, shade=False)
+
+    # -------------------------
+    # Wilcoxon signed-rank test
+    # -------------------------
+    L = global_min_len
+
+    # Average duplicate entries of same seed within each group, if any
+    seed_avg_curves = {"stateless": {}, "stateful": {}}
+    for group in ["stateless", "stateful"]:
+        for seed, curve_list in curves_by_type_and_seed[group].items():
+            trimmed = np.vstack([c[:L] for c in curve_list])
+            seed_avg_curves[group][seed] = trimmed.mean(axis=0)
+
+    common_seeds = sorted(
+        set(seed_avg_curves["stateless"].keys()) &
+        set(seed_avg_curves["stateful"].keys())
+    )
+
+    if len(common_seeds) == 0:
+        print("[WARN] No matched seeds between stateless and stateful groups; Wilcoxon test not run.")
+    else:
+        stateless_avg = np.array(
+            [seed_avg_curves["stateless"][s].mean() for s in common_seeds],
+            dtype=float
+        )
+        stateful_avg = np.array(
+            [seed_avg_curves["stateful"][s].mean() for s in common_seeds],
+            dtype=float
+        )
+
+        print("\n[INFO] Paired per-seed average fitness values used for Wilcoxon:")
+        for s, a, b in zip(common_seeds, stateless_avg, stateful_avg):
+            print(f"  seed {s}: stateless={a:.6f}, stateful={b:.6f}")
+
+        diffs = stateful_avg - stateless_avg
+        nonzero_mask = ~np.isclose(diffs, 0.0)
+
+        if np.count_nonzero(nonzero_mask) == 0:
+            print("[WARN] All paired differences are zero; Wilcoxon statistic is undefined.")
+        else:
+            result = wilcoxon(
+                stateful_avg[nonzero_mask],
+                stateless_avg[nonzero_mask],
+                alternative="two-sided",
+                zero_method="wilcox"
+            )
+
+            print("\n[INFO] Wilcoxon signed-rank test on paired per-seed average fitness")
+            print(f"[INFO] Matched seeds: {common_seeds}")
+            print(f"[INFO] Number of nonzero pairs used: {np.count_nonzero(nonzero_mask)}")
+            print(f"[INFO] Wilcoxon statistic = {result.statistic:.6g}")
+            print(f"[INFO] p-value = {result.pvalue:.6g}")
 
     plt.legend(loc="lower right", fontsize=8, ncol=1)
     plt.xlabel("Generations")

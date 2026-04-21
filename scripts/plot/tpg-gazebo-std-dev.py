@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
+from scipy.stats import wilcoxon
 
 # ------------------------
 # CONFIG
@@ -35,7 +36,7 @@ plt.rcParams.update({
     "ytick.major.width": 1.1,
     "xtick.major.size": 5,
     "ytick.major.size": 5,
-    "pdf.fonttype": 42,   # better font embedding
+    "pdf.fonttype": 42,
     "ps.fonttype": 42,
 })
 
@@ -43,8 +44,6 @@ plt.rcParams.update({
 # PATHS
 # ------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-# base_path = HERE
 base_path = "/home/dhilan/tpg_codebase/tpg/experiments/paper_data"
 
 # ------------------------
@@ -185,7 +184,35 @@ if __name__ == "__main__":
     if phase > 0:
         gens = gens * 100
 
-    # Slightly taller figure improves readability when scaled into a paper
+    # ------------------------
+    # Wilcoxon signed-rank test
+    # Pairing is by generation on the average values
+    # ------------------------
+    diffs = mean_f - mean_s
+    nonzero_mask = ~np.isclose(diffs, 0.0)
+
+    print("\n[INFO] Per-generation paired averages used for Wilcoxon:")
+    for g, s_val, f_val in zip(gens, mean_s, mean_f):
+        print(f"  gen {g}: stateless={s_val:.6g}, stateful={f_val:.6g}")
+
+    if np.count_nonzero(nonzero_mask) == 0:
+        print("\n[WARN] All paired generation-wise differences are zero; Wilcoxon test undefined.")
+    else:
+        result = wilcoxon(
+            mean_f[nonzero_mask],
+            mean_s[nonzero_mask],
+            alternative="two-sided",
+            zero_method="wilcox"
+        )
+
+        print("\n[INFO] Wilcoxon signed-rank test on per-generation average fitness")
+        print(f"[INFO] Number of paired generations used: {np.count_nonzero(nonzero_mask)}")
+        print(f"[INFO] Wilcoxon statistic = {result.statistic:.6g}")
+        print(f"[INFO] p-value = {result.pvalue:.6g}")
+
+    # ------------------------
+    # PLOT
+    # ------------------------
     fig, ax = plt.subplots(figsize=(8.2, 5.2))
 
     plot_mean_with_std(ax, gens, mean_s, std_s, "Stateless", COLORS["stateless"], alpha=0.18)
@@ -193,14 +220,12 @@ if __name__ == "__main__":
 
     ax.set_xlabel("Generation")
     ax.set_ylabel("Fitness")
-    ax.set_title("Stateful vs Stateless: Mean Fitness ± 1 SD", pad=10)
+    ax.set_title("Mean Fitness ± 1 SD", pad=10)
 
     ax.legend(loc="lower right", frameon=True, handlelength=2.2, borderpad=0.6)
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-
-    # light grid helps reading values in print
     ax.grid(True, axis="y", alpha=0.25)
 
     out_dir = os.path.join(base_path, "gazebo_curve_plots")

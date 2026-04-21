@@ -134,10 +134,15 @@ ax.set_axisbelow(True)
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 
-ax.legend(loc="upper right", frameon=True)
+ax.legend(
+    loc="upper center",
+    bbox_to_anchor=(0.5, -0.15),
+    ncol=2,
+    frameon=True
+)
 
 # Reserve vertical space so annotations do not collide with the title
-fig.subplots_adjust(top=0.82)
+fig.subplots_adjust(bottom=0.22)
 
 # ============================================================
 # BAR ANNOTATIONS

@@ -233,7 +233,7 @@ if __name__ == "__main__":
 
     ax.set_xlabel("Generation")
     ax.set_ylabel("Mean Effective Instruction Count")
-    ax.set_title("Mean Effective Instruction Count per Generation", pad=10)
+    ax.set_title("Mean Effective Instruction Count ± 1 SD", pad=10)
 
     ax.legend(loc="best", frameon=True)
     ax.spines["top"].set_visible(False)

@@ -42,8 +42,6 @@ plt.rcParams.update({
 # PATHS
 # ------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-# Change this if needed
 base_path = "/home/dhilan/tpg_codebase/tpg/experiments/paper_data"
 
 # ------------------------
@@ -148,8 +146,11 @@ def aggregate_group(experiment_dirs):
     return gens, mean, std, data.shape[0]
 
 def plot_mean_with_std(ax, gens, mean, std, label, color, alpha=0.18):
+    lower = np.maximum(mean - std, 0.0)
+    upper = mean + std
+
     ax.plot(gens, mean, label=label, color=color, linewidth=2.4)
-    ax.fill_between(gens, mean - std, mean + std, color=color, alpha=alpha)
+    ax.fill_between(gens, lower, upper, color=color, alpha=alpha)
 
 # ------------------------
 # MAIN
@@ -184,9 +185,6 @@ if __name__ == "__main__":
     if len(gens_s) == 0 and len(gens_f) == 0:
         raise RuntimeError("No usable FLOPs curves found for either group.")
 
-    # --------------------------------------------------
-    # FORCE BOTH GROUPS TO END AT THE SAME GENERATION
-    # --------------------------------------------------
     if len(gens_s) > 0 and len(gens_f) > 0:
         L = min(len(gens_s), len(gens_f))
         gens = np.arange(L)
@@ -197,22 +195,17 @@ if __name__ == "__main__":
         std_f = std_f[:L]
 
     elif len(gens_s) > 0:
-        # Only stateless exists
         L = len(gens_s)
         gens = gens_s
         mean_s = mean_s[:L]
         std_s = std_s[:L]
 
     else:
-        # Only stateful exists
         L = len(gens_f)
         gens = gens_f
         mean_f = mean_f[:L]
         std_f = std_f[:L]
 
-    # ------------------------
-    # PLOT
-    # ------------------------
     fig, ax = plt.subplots(figsize=(8.2, 5.2))
 
     if len(gens_s) > 0:
@@ -237,15 +230,14 @@ if __name__ == "__main__":
 
     ax.set_xlabel("Generation")
     ax.set_ylabel("Mean FLOPs")
-    ax.set_title("Mean FLOPs per Generation", pad=10)
+    ax.set_title("Mean FLOPs ± 1 SD ", pad=10)
 
     ax.legend(loc="best", frameon=True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(True, axis="y", alpha=0.25)
-
-    # Make the common horizon explicit
     ax.set_xlim(0, L - 1)
+    ax.set_ylim(bottom=0)
 
     out_dir = os.path.join(base_path, "gazebo_curve_plots")
     os.makedirs(out_dir, exist_ok=True)

@@ -1,16 +1,18 @@
 import os
 import math
+import glob
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
 from matplotlib.lines import Line2D
+from pandas.errors import EmptyDataError
 
 # =========================
 # CONFIG
 # =========================
-TRAJ_CSV = "bev/trajectory.csv"
-WORLD_CSV = "bev/world_layout.csv"
-OUT_DIR = "bev/paper_plots"
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = HERE
+OUT_DIR = os.path.join(BASE_DIR, "bev")
 
 # Approximate TurtleBot4 footprint radius [m]
 ROBOT_RADIUS = 0.11
@@ -26,7 +28,6 @@ TRAJ_COLOR = "#1f77b4"
 END_COLOR = "#d62728"
 TARGET_FACE = "gold"
 TARGET_EDGE = "#8a6d00"
-# TARGET_EDGE = "black"
 BONUS_FACE = "gold"
 BONUS_EDGE = "goldenrod"
 OBS_FACE = "#e6e6e6"
@@ -38,6 +39,21 @@ PAD = 0.10
 
 # Save DPI for PNG
 PNG_DPI = 300
+
+
+def infer_type_from_name(name: str) -> str:
+    lname = name.lower()
+    if "stateless" in lname:
+        return "stateless"
+    if "stateful" in lname:
+        return "stateful"
+    return "unknown"
+
+
+def discover_experiments(base_dir: str):
+    pattern = os.path.join(base_dir, "gazebo_turtlebot4_*_f_*")
+    exp_dirs = [p for p in sorted(glob.glob(pattern)) if os.path.isdir(p)]
+    return exp_dirs
 
 
 def heading_line(ax, x, y, yaw, radius, color="k", lw=1.2, zorder=6):
@@ -116,8 +132,6 @@ def make_legend(ax):
         label="target"
     )
 
-
-
     bonus_handle = Circle(
         (0, 0),
         0.12,
@@ -172,10 +186,9 @@ def make_legend(ax):
     )
 
 
-def plot_episode(ep, t, w, xlim, ylim, out_dir):
+def plot_episode(ep, t, w, xlim, ylim, out_dir, exp_name):
     fig, ax = plt.subplots(figsize=FIGSIZE)
 
-    # Obstacle with stripes
     obstacle = Rectangle(
         (
             w["obstacle_x"] - w["obstacle_width"] / 2.0,
@@ -191,7 +204,6 @@ def plot_episode(ep, t, w, xlim, ylim, out_dir):
     )
     ax.add_patch(obstacle)
 
-    # Bonus-active region
     bonus_region = Circle(
         (w["goal_x"], w["goal_y"]),
         TARGET_BONUS_RADIUS,
@@ -204,7 +216,6 @@ def plot_episode(ep, t, w, xlim, ylim, out_dir):
     )
     ax.add_patch(bonus_region)
 
-    # Target footprint (cereal box top view)
     target_rect = Rectangle(
         (
             w["goal_x"] - TARGET_WIDTH / 2.0,
@@ -219,8 +230,6 @@ def plot_episode(ep, t, w, xlim, ylim, out_dir):
     )
     ax.add_patch(target_rect)
 
-
-    # Trajectory
     ax.plot(
         t["robot_x"],
         t["robot_y"],
@@ -229,7 +238,6 @@ def plot_episode(ep, t, w, xlim, ylim, out_dir):
         zorder=4,
     )
 
-    # Start/end states
     x0 = t.iloc[0]["robot_x"]
     y0 = t.iloc[0]["robot_y"]
     yaw0 = t.iloc[0]["robot_yaw"]
@@ -264,42 +272,65 @@ def plot_episode(ep, t, w, xlim, ylim, out_dir):
     heading_line(ax, x0, y0, yaw0, ROBOT_RADIUS, color=TRAJ_COLOR, lw=1.2, zorder=6)
     heading_line(ax, x1, y1, yaw1, ROBOT_RADIUS, color=END_COLOR, lw=1.2, zorder=6)
 
-    # Axes and style
     ax.set_aspect("equal")
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
-    ax.set_title(f"Episode {ep}")
+    ax.set_title(f"{exp_name} | Episode {ep}")
     ax.grid(False)
 
     for spine in ax.spines.values():
         spine.set_linewidth(1.0)
 
     make_legend(ax)
-
     plt.tight_layout()
 
-    png_path = os.path.join(out_dir, f"episode_{ep:03d}.png")
-    pdf_path = os.path.join(out_dir, f"episode_{ep:03d}.pdf")
+    stem = f"{exp_name}_episode_{int(ep):03d}"
+    png_path = os.path.join(out_dir, f"{stem}.png")
+    pdf_path = os.path.join(out_dir, f"{stem}.pdf")
 
     plt.savefig(png_path, dpi=PNG_DPI, bbox_inches="tight")
     plt.savefig(pdf_path, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"Saved {png_path}")
-    print(f"Saved {pdf_path}")
+    print(f"[INFO] Saved {png_path}")
+    print(f"[INFO] Saved {pdf_path}")
 
 
-def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
+def load_csv(path: str):
+    try:
+        df = pd.read_csv(path)
+    except (FileNotFoundError, EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as e:
+        print(f"[WARN] Could not read {path}: {e}")
+        return None
 
-    traj = pd.read_csv(TRAJ_CSV)
-    world = pd.read_csv(WORLD_CSV)
+    if df.empty:
+        print(f"[WARN] Empty CSV: {path}")
+        return None
 
-    # Remove whitespace in headers
-    traj.columns = traj.columns.str.strip()
-    world.columns = world.columns.str.strip()
+    df.columns = df.columns.astype(str).str.strip()
+    return df
+
+
+def process_experiment(exp_dir: str, out_root: str):
+    exp_name = os.path.basename(exp_dir)
+    exp_type = infer_type_from_name(exp_name)
+
+    if exp_type == "unknown":
+        print(f"[WARN] Skipping unknown type: {exp_name}")
+        return 0
+
+    best_agent_dir = os.path.join(exp_dir, "logs", "best_agent")
+    traj_csv = os.path.join(best_agent_dir, "trajectory.csv")
+    world_csv = os.path.join(best_agent_dir, "world_layout.csv")
+
+    traj = load_csv(traj_csv)
+    world = load_csv(world_csv)
+
+    if traj is None or world is None:
+        print(f"[WARN] Skipping {exp_name}: missing usable CSVs")
+        return 0
 
     required_traj_cols = {"episode", "robot_x", "robot_y", "robot_yaw"}
     required_world_cols = {
@@ -316,38 +347,81 @@ def main():
     missing_world = required_world_cols - set(world.columns)
 
     if missing_traj:
-        raise ValueError(f"Missing trajectory columns: {sorted(missing_traj)}")
+        print(f"[WARN] {exp_name}: missing trajectory columns {sorted(missing_traj)}")
+        return 0
     if missing_world:
-        raise ValueError(f"Missing world columns: {sorted(missing_world)}")
+        print(f"[WARN] {exp_name}: missing world columns {sorted(missing_world)}")
+        return 0
 
-    traj_eps = set(traj["episode"].unique())
-    world_eps = set(world["episode"].unique())
+    traj_eps = set(pd.to_numeric(traj["episode"], errors="coerce").dropna().astype(int).unique())
+    world_eps = set(pd.to_numeric(world["episode"], errors="coerce").dropna().astype(int).unique())
     episodes = sorted(traj_eps.intersection(world_eps))
 
     if not episodes:
-        raise ValueError("No common episodes found in trajectory.csv and world_layout.csv")
+        print(f"[WARN] {exp_name}: no common episodes found")
+        return 0
 
-    print(f"Found episodes: {episodes}")
+    x0, x1, y0, y1 = compute_global_limits(traj, world, TARGET_BONUS_RADIUS, PAD)
+    xlim = (x0, x1)
+    ylim = (y0, y1)
 
-    xlim_y = compute_global_limits(traj, world, TARGET_BONUS_RADIUS, PAD)
-    xlim = (xlim_y[0], xlim_y[1])
-    ylim = (xlim_y[2], xlim_y[3])
+    type_dir = os.path.join(out_root, exp_type)
+    os.makedirs(type_dir, exist_ok=True)
 
+    count = 0
     for ep in episodes:
-        t = traj[traj["episode"] == ep].copy()
-        w_rows = world[world["episode"] == ep]
+        t = traj[pd.to_numeric(traj["episode"], errors="coerce") == ep].copy()
+        w_rows = world[pd.to_numeric(world["episode"], errors="coerce") == ep]
 
-        if t.empty:
-            print(f"Skipping episode {ep}: no trajectory data")
-            continue
-        if w_rows.empty:
-            print(f"Skipping episode {ep}: no world layout data")
+        if t.empty or w_rows.empty:
             continue
 
         w = w_rows.iloc[0]
-        plot_episode(ep, t, w, xlim, ylim, OUT_DIR)
+        plot_episode(ep, t, w, xlim, ylim, type_dir, exp_name)
+        count += 1
 
-    print(f"Done. Saved plots to: {OUT_DIR}")
+    return count
+
+
+def copy_summary_plots(base_dir: str, out_root: str):
+    src_dir = os.path.join(base_dir, "gazebo_curve_plots")
+    dst_dir = os.path.join(out_root, "summary_plots")
+    os.makedirs(dst_dir, exist_ok=True)
+
+    if not os.path.isdir(src_dir):
+        print(f"[WARN] Missing summary plots directory: {src_dir}")
+        return
+
+    for path in glob.glob(os.path.join(src_dir, "*")):
+        if not os.path.isfile(path):
+            continue
+        name = os.path.basename(path)
+        dst = os.path.join(dst_dir, name)
+        with open(path, "rb") as fsrc, open(dst, "wb") as fdst:
+            fdst.write(fsrc.read())
+        print(f"[INFO] Copied summary plot: {name}")
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(os.path.join(OUT_DIR, "stateful"), exist_ok=True)
+    os.makedirs(os.path.join(OUT_DIR, "stateless"), exist_ok=True)
+
+    experiments = discover_experiments(BASE_DIR)
+    if not experiments:
+        raise RuntimeError(f"No experiment folders found in: {BASE_DIR}")
+
+    total = 0
+    for exp_dir in experiments:
+        total += process_experiment(exp_dir, OUT_DIR)
+
+    copy_summary_plots(BASE_DIR, OUT_DIR)
+
+    print(f"[INFO] Done. Saved {total} trajectory plot set(s) to: {OUT_DIR}")
+    print(f"[INFO] Structure:")
+    print(f"[INFO]   {OUT_DIR}/summary_plots")
+    print(f"[INFO]   {OUT_DIR}/stateful")
+    print(f"[INFO]   {OUT_DIR}/stateless")
 
 
 if __name__ == "__main__":
