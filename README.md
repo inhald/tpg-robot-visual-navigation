@@ -4,12 +4,6 @@ This code reproduces results from the paper:
 
 Neelkant Teeluckdharry, Stephen Kelly. Robot Visual Navigation using Tangled Program Graphs
 
-
-
-
-
-We can rapidly evolve visual navigation policies on a high-performance computing cluster such as those on the Digital Research Alliance of Canada. 
-
 ## Pre-requisites
 Load the apptainer module `module load apptainer` and set `$TPG` to the environment variable for this directory.
 
@@ -30,6 +24,13 @@ Copy the config file to a new directory in experiments
 Then, run the slurm script from within the experiment directory. 
 
 `sbatch ../../scripts/run/tpg-gazebo.sh -s <your_seed_number> -p ./${PWD##*/}.yaml`
+
+
+## Parameters
+The hyperparameters for the experiment are listed in the `gazebo_turtlebot4.yaml` file. 
+
+## Plotting 
+Within the experiment folder, a csv containing best fitness per generation will be generated under the folder `logs/selection/selection_{seed}_{pid}.csv`. This can be plotted using the tpg-plot-evolve.py script in `$TPG/scripts/plot/`.
 
 
 
