@@ -5,7 +5,7 @@ This code reproduces results from the paper:
 Neelkant Teeluckdharry, Stephen Kelly. Robot Visual Navigation using Tangled Program Graphs
 
 ## Pre-requisites
-Load the apptainer module `module load apptainer` and set `$TPG` to the environment variable for this directory.
+Load the apptainer module on HPC cluster using `module load apptainer` and set `$TPG` to the environment variable for this directory.
 
 ## Build the container
 First `cd apptainer`, then complete the build the container by running `apptainer build gazebo_tpg.sif gazebo_tpg.def`. 
