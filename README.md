@@ -1,8 +1,8 @@
-# Robot Visual Navigation using TPG
+# Stateful Tangled Program Graphs for Sim-to-Real Transfer in Robot Navigation
 
 This code reproduces results from the paper:
 
-Neelkant Teeluckdharry, Stephen Kelly. Robot Visual Navigation using Tangled Program Graphs
+Neelkant Teeluckdharry, Stephen Kelly. Stateful Tangled Program Graphs for Sim-to-Real Transfer in Robot Navigation
 
 ## Pre-requisites
 Load the apptainer module on HPC cluster using `module load apptainer` and set `$TPG` to the environment variable for this directory.
