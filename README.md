@@ -2,7 +2,7 @@
 
 This code reproduces results from the paper:
 
-Neelkant Teeluckdharry, Stephen Kelly. Stateful Tangled Program Graphs for Sim-to-Real Transfer in Robot Navigation
+Neelkant Teeluckdharry, Stephen Kelly; August 17–21, 2026. "Stateful Tangled Program Graphs for Sim-to-Real Transfer in Robot Navigation." Proceedings of the ALIFE 2026: Proceedings of the 2026 Artificial Life Conference. ALIFE 2026: Proceedings of the 2026 Artificial Life Conference. Online. (pp. 38). ASME. https://doi.org/10.1162/ISAL.a.964
 
 ## Pre-requisites
 Load the apptainer module on HPC cluster using `module load apptainer` and set `$TPG` to the environment variable for this directory.
